@@ -1,0 +1,14 @@
+node_modules
+dist
+.tmp
+*.local
+
+# local tooling / editor
+.claude/settings.local.json
+.vscode
+.idea
+.DS_Store
+
+# logs
+npm-debug.log*
+yarn-error.log*
