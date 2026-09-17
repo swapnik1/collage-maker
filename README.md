@@ -8,19 +8,43 @@ Built to [PRD.md](PRD.md).
 
 ## Run it
 
+Build once:
+
 ```bash
 npm install
-npm run dev
-```
-
-Then open http://localhost:5173.
-
-```bash
 npm run build
 ```
 
-Produces a static `dist/` folder. Any static host will do — there is nothing to
-deploy but files. Paths are relative, so it works from a subdirectory too.
+That writes two things into `dist/`:
+
+- **`collage-maker.html`** — the whole app in one file, script and stylesheet
+  inlined. Double-click it. No server, no Node, no network. Move it anywhere,
+  keep it on a USB stick, bookmark it. This is the one to use day to day.
+- **`index.html` + `assets/`** — the conventional split build, for hosting.
+
+There is no runtime and nothing to install for the person using it. Node is
+needed to *build* the app, not to run it.
+
+### Hosting it
+
+`dist/` is plain static files, so GitHub Pages, Netlify, Cloudflare Pages or any
+web server will serve it as-is. Asset paths are relative, so a subdirectory works
+too. Nothing ever leaves the visitor's browser, so there is no backend to pair
+with it and no data to look after.
+
+### Working on it
+
+```bash
+npm run dev
+```
+
+Hot reload at http://localhost:5173. Only needed while changing the code.
+
+> One caveat when running straight off the filesystem: some browsers refuse
+> IndexedDB on `file://`, so the autosave that survives a reload may be inactive
+> there. The app detects this and carries on without it — you just start fresh
+> each time you open the file. Hosting it at a real URL, even a local one,
+> restores autosave.
 
 ## How it works
 
@@ -86,3 +110,7 @@ output, free-form overlapping placement, accounts, sharing links, cloud storage.
 
 HEIC is not supported — browsers cannot decode it natively and it needs a WASM
 decoder. iPhone photos in HEIC will be skipped with a message saying so.
+
+## Licence
+
+MIT — see [LICENSE](LICENSE).

@@ -47,7 +47,12 @@ async function withStore<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) =>
   }
 }
 
-/** Autosave so a stray refresh does not cost the whole session (R9.1). */
+/**
+ * Autosave so a stray refresh does not cost the whole session (R9.1).
+ * Storage can be unavailable — private windows, blocked site data, or running
+ * the single-file build straight off the filesystem — so a failure here is
+ * swallowed rather than interrupting the edit.
+ */
 export async function saveSession(doc: Doc, photos: Photo[]): Promise<void> {
   const payload: SavedSession = {
     root: doc.root,
@@ -57,7 +62,11 @@ export async function saveSession(doc: Doc, photos: Photo[]): Promise<void> {
     photos: photos.map((p) => ({ id: p.id, name: p.name, width: p.width, height: p.height, blob: p.blob })),
     savedAt: Date.now(),
   };
-  await withStore('readwrite', (s) => s.put(payload, KEY) as IDBRequest<IDBValidKey>);
+  try {
+    await withStore('readwrite', (s) => s.put(payload, KEY) as IDBRequest<IDBValidKey>);
+  } catch {
+    /* no persistence available; the session simply will not survive a reload */
+  }
 }
 
 export async function loadSession(): Promise<SavedSession | null> {
