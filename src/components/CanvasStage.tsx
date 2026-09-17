@@ -8,6 +8,9 @@ import { Action, AppState, transformOf } from '../state/store';
 const MIN_CELL_SHARE = 0.05; // R4.4
 const SEAM_GRAB_PX = 9;
 const BADGE_PX = 26;
+const FLIP_R = 13;
+/** How far the pointer must travel before a press on the flip button becomes a resize. */
+const DRAG_SLOP = 4;
 
 interface Props {
   state: AppState;
@@ -23,6 +26,10 @@ type Drag =
       seam: Seam;
       /** Cell geometry and zoom captured at pointerdown, so repeated moves never compound. */
       start: Map<string, { rect: Rect; zoom: number; pw: number; ph: number }>;
+      /** Started on the flip button: a click flips the split, a drag still resizes it. */
+      fromFlip: boolean;
+      moved: boolean;
+      origin: { x: number; y: number };
     }
   | { kind: 'pan'; photoId: string; from: { x: number; y: number }; startT: Transform; place: { ox: number; oy: number } }
   | { kind: 'swap'; photoId: string; over: string | null }
@@ -33,11 +40,12 @@ export default function CanvasStage({ state, dispatch, cropping, cropRect, onCro
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
-  const [hover, setHover] = useState<{ cell: string | null; seam: string | null; badge: boolean }>({
-    cell: null,
-    seam: null,
-    badge: false,
-  });
+  const [hover, setHover] = useState<{
+    cell: string | null;
+    seam: string | null;
+    badge: boolean;
+    flip: boolean;
+  }>({ cell: null, seam: null, badge: false, flip: false });
   const dragRef = useRef<Drag>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -128,6 +136,13 @@ export default function CanvasStage({ state, dispatch, cropping, cropRect, onCro
 
   const inRect = (r: Rect, x: number, y: number) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
 
+  /** The flip button sits at the middle of a seam, and only while that seam is hovered. */
+  const onFlipButton = (seam: Seam, x: number, y: number) => {
+    const cx = seam.rect.x + seam.rect.w / 2;
+    const cy = seam.rect.y + seam.rect.h / 2;
+    return Math.hypot(x - cx, y - cy) <= u(FLIP_R + 2);
+  };
+
   const onPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     if (!doc.root) return;
     const { x, y } = toUnit(e);
@@ -157,7 +172,14 @@ export default function CanvasStage({ state, dispatch, cropping, cropRect, onCro
         });
       }
       dispatch({ type: 'begin' });
-      dragRef.current = { kind: 'seam', seam, start };
+      dragRef.current = {
+        kind: 'seam',
+        seam,
+        start,
+        fromFlip: onFlipButton(seam, x, y),
+        moved: false,
+        origin: { x, y },
+      };
       return;
     }
 
@@ -192,10 +214,11 @@ export default function CanvasStage({ state, dispatch, cropping, cropRect, onCro
       const seam = cropping ? null : seamAt(layout, x, y, u(SEAM_GRAB_PX));
       const cell = seam ? null : cellAt(layout, x, y);
       const badge = !!cell && !cropping && inRect(badgeRectFor(cell), x, y);
+      const flip = !!seam && onFlipButton(seam, x, y);
       const seamId = seam?.nodeId ?? null;
       const cellId = cell?.photoId ?? null;
-      if (seamId !== hover.seam || cellId !== hover.cell || badge !== hover.badge) {
-        setHover({ seam: seamId, cell: cellId, badge });
+      if (seamId !== hover.seam || cellId !== hover.cell || badge !== hover.badge || flip !== hover.flip) {
+        setHover({ seam: seamId, cell: cellId, badge, flip });
       }
       return;
     }
@@ -213,6 +236,11 @@ export default function CanvasStage({ state, dispatch, cropping, cropRect, onCro
 
     if (drag.kind === 'seam') {
       const { seam } = drag;
+      if (drag.fromFlip && !drag.moved) {
+        // Hold the resize back until the press clearly is not a click on the button.
+        if (Math.hypot(x - drag.origin.x, y - drag.origin.y) < u(DRAG_SLOP)) return;
+        dragRef.current = { ...drag, moved: true };
+      }
       const raw =
         seam.dir === 'row' ? (x - seam.parent.x) / seam.parent.w : (y - seam.parent.y) / seam.parent.h;
       const ratio = clamp(raw, 0.02, 0.98);
@@ -268,6 +296,10 @@ export default function CanvasStage({ state, dispatch, cropping, cropRect, onCro
     const drag = dragRef.current;
     dragRef.current = null;
     if (drag?.kind === 'swap' && drag.over) dispatch({ type: 'swap', a: drag.photoId, b: drag.over });
+    // A press on the flip button that never became a drag turns the split instead.
+    if (drag?.kind === 'seam' && drag.fromFlip && !drag.moved) {
+      dispatch({ type: 'flip-seam', nodeId: drag.seam.nodeId });
+    }
     dispatch({ type: 'end' });
   };
 
@@ -320,6 +352,7 @@ export default function CanvasStage({ state, dispatch, cropping, cropRect, onCro
 
   const cursor = (() => {
     if (cropping) return 'crosshair';
+    if (hover.flip) return 'pointer';
     if (hover.badge) return 'grab';
     if (hover.seam) {
       const s = layout.seams.find((x) => x.nodeId === hover.seam);
@@ -340,7 +373,7 @@ export default function CanvasStage({ state, dispatch, cropping, cropRect, onCro
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
-          onPointerLeave={() => setHover({ cell: null, seam: null, badge: false })}
+          onPointerLeave={() => setHover({ cell: null, seam: null, badge: false, flip: false })}
           onWheel={onWheel}
           onDoubleClick={onDoubleClick}
         />
@@ -380,7 +413,7 @@ export function maxZoom(cell: Rect, photo: Photo): number {
 }
 
 interface ChromeOpts {
-  hover: { cell: string | null; seam: string | null; badge: boolean };
+  hover: { cell: string | null; seam: string | null; badge: boolean; flip: boolean };
   selected: string | null;
   drag: Drag;
   cropping: boolean;
@@ -473,6 +506,28 @@ function drawChrome(ctx: CanvasRenderingContext2D, layout: Layout, scale: number
       ctx.fillStyle = 'rgba(77,171,247,0.9)';
       if (seam.dir === 'row') ctx.fillRect(r.x + r.w / 2 - 1.5, r.y, 3, r.h);
       else ctx.fillRect(r.x, r.y + r.h / 2 - 1.5, r.w, 3);
+
+      // The flip button, hidden once a resize is actually under way.
+      if (!(o.drag?.kind === 'seam' && o.drag.moved)) {
+        const cx = r.x + r.w / 2;
+        const cy = r.y + r.h / 2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, FLIP_R, 0, Math.PI * 2);
+        ctx.fillStyle = o.hover.flip ? '#4dabf7' : 'rgba(10,12,16,0.85)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        // The icon shows the arrangement you would get, not the one you have.
+        ctx.fillStyle = '#fff';
+        if (seam.dir === 'row') {
+          ctx.fillRect(cx - 5, cy - 4.5, 10, 3.5);
+          ctx.fillRect(cx - 5, cy + 1, 10, 3.5);
+        } else {
+          ctx.fillRect(cx - 4.5, cy - 5, 3.5, 10);
+          ctx.fillRect(cx + 1, cy - 5, 3.5, 10);
+        }
+      }
       ctx.restore();
     }
   }

@@ -1,7 +1,8 @@
 # Collage Maker
 
-Drop in up to 20 photos, get a good layout proposed automatically, adjust it by
-dragging seams and zooming photos in place, crop, and export a high-resolution
+Drop in up to 20 photos, get a good layout proposed automatically, or pick the
+arrangement you want yourself. Adjust it by dragging seams, turning rows into
+columns and zooming photos in place, then crop and export a high-resolution
 image. Everything runs in the browser — no upload, no account, no backend.
 
 Built to [PRD.md](PRD.md).
@@ -52,8 +53,16 @@ The whole app rests on one structure: **the layout is a binary split tree.**
 Internal nodes are a horizontal or vertical split with a ratio, leaves are cells
 holding a photo plus its zoom and pan.
 
-That one choice makes four features fall out of the same code:
+That one choice makes the whole feature set fall out of the same code:
 
+- **Choosing a layout** — the picker offers twelve scored suggestions and a set
+  of named templates (Grid, Rows of 3, Hero left, Two bands and so on), so you
+  can take the algorithm's opinion or override it with a shape you already have
+  in mind. Both are just trees; picking one swaps the structure and keeps the
+  photos.
+- **Changing a layout** — every seam carries a button that turns a row into a
+  column and back, re-solving that split's ratio for its new direction. Pressing
+  it and dragging resizes instead, so the two gestures never fight.
 - **Automatic layout** — candidate trees are generated, then each tree's ratios
   are solved so that no photo is cropped at all: widths add across a row, heights
   add down a column, so a subtree has a *natural aspect* and the optimal ratio at
@@ -76,9 +85,20 @@ view.
 |---|---|
 | [src/layout/tree.ts](src/layout/tree.ts) | The tree, rect computation, seam hit-testing, ratio solving |
 | [src/layout/generate.ts](src/layout/generate.ts) | Candidate generation and scoring |
+| [src/layout/templates.ts](src/layout/templates.ts) | The named structures behind the Templates tab |
 | [src/render/draw.ts](src/render/draw.ts) | Photo placement and canvas drawing, shared by preview and export |
 | [src/render/exporter.ts](src/render/exporter.ts) | Full-resolution render, one photo decoded at a time |
 | [src/state/store.ts](src/state/store.ts) | Reducer, undo/redo |
+
+### Tests
+
+```bash
+npm test
+```
+
+89 tests over the layout engine, templates, photo placement, export sizing and
+the reducer — the parts where a mistake is silent rather than visible. They run
+as part of `npm run build`, so a broken build never reaches `dist/`.
 
 ### Tuning the suggestions
 
@@ -92,7 +112,8 @@ npx esbuild scripts/layout-check.ts --bundle --format=esm --outfile=.tmp/check.m
 
 It prints, for a range of photo sets, how long generation took, how much of each
 photo the best layout crops away, how starved the smallest cell is, and an ASCII
-map of the arrangement — then runs assertions over the geometry rules.
+map of the arrangement. It is for judging quality by eye; the pass/fail checks
+live in the test suite.
 
 In development, `window.__collage` holds the current document and computed
 layout. It is compiled out of production builds.

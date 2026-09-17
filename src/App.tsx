@@ -6,7 +6,7 @@ import { importFiles, photoFromBlob } from './utils/image';
 import CanvasStage from './components/CanvasStage';
 import PhotoList from './components/PhotoList';
 import Inspector from './components/Inspector';
-import Suggestions from './components/Suggestions';
+import LayoutPicker from './components/LayoutPicker';
 import ExportDialog from './components/ExportDialog';
 
 export default function App() {
@@ -242,14 +242,16 @@ export default function App() {
                 Drag the shape you want. Photos reflow to fill it, so nothing is lost.
               </p>
             ) : (
-              <Suggestions
+              <LayoutPicker
                 suggestions={state.suggestions}
-                activeIndex={state.suggestionIndex}
+                templates={state.templates}
+                picked={state.picked}
                 adjusted={state.adjusted}
                 photos={photos}
                 canvas={doc.canvas}
                 transforms={doc.transforms}
-                onPick={(i) => dispatch({ type: 'pick-suggestion', index: i })}
+                onPickSuggestion={(i) => dispatch({ type: 'pick-suggestion', index: i })}
+                onPickTemplate={(key) => dispatch({ type: 'pick-template', key })}
               />
             )}
           </section>

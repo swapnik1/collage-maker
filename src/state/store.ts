@@ -1,6 +1,7 @@
 import { CanvasSettings, Doc, IDENTITY, Node, Photo, Transform } from '../types';
 import { generateLayouts } from '../layout/generate';
-import { removePhoto, setRatio, swapPhotos } from '../layout/tree';
+import { Template, templatesFor } from '../layout/templates';
+import { flipSplit, removePhoto, setRatio, swapPhotos } from '../layout/tree';
 
 export const ASPECTS: { label: string; value: number }[] = [
   { label: '1:1', value: 1 },
@@ -28,6 +29,10 @@ export const EMPTY_DOC: Doc = {
   canvas: DEFAULT_CANVAS,
 };
 
+/** How many scored suggestions to offer. Enough to browse, not so many it is a wall. */
+const SUGGESTION_COUNT = 12;
+const HISTORY_LIMIT = 50;
+
 export interface AppState {
   photos: Photo[];
   doc: Doc;
@@ -37,8 +42,10 @@ export interface AppState {
   pending: Doc | null;
   selected: string | null;
   suggestions: Node[];
-  suggestionIndex: number;
-  /** True once the user has moved a seam or cropped, so we know when a re-layout costs work. */
+  templates: Template[];
+  /** Which tile in the layout picker produced the current arrangement: `s:<i>` or `t:<key>`. */
+  picked: string | null;
+  /** True once the user has changed the layout by hand, so we know when a re-layout costs work. */
   adjusted: boolean;
   notices: string[];
 }
@@ -51,7 +58,8 @@ export const INITIAL: AppState = {
   pending: null,
   selected: null,
   suggestions: [],
-  suggestionIndex: 0,
+  templates: [],
+  picked: null,
   adjusted: false,
   notices: [],
 };
@@ -61,7 +69,9 @@ export type Action =
   | { type: 'remove-photo'; photoId: string }
   | { type: 'reorder'; from: number; to: number }
   | { type: 'pick-suggestion'; index: number }
+  | { type: 'pick-template'; key: string }
   | { type: 'auto-arrange' }
+  | { type: 'flip-seam'; nodeId: string }
   | { type: 'set-canvas'; patch: Partial<CanvasSettings> }
   | { type: 'begin' }
   | { type: 'end' }
@@ -76,8 +86,6 @@ export type Action =
   | { type: 'restore'; photos: Photo[]; doc: Doc }
   | { type: 'notice'; text: string }
   | { type: 'dismiss-notice' };
-
-const HISTORY_LIMIT = 50;
 
 /** Push the current doc onto the undo stack (R9.2). */
 function commit(state: AppState, doc: Doc): AppState {
@@ -112,9 +120,19 @@ function shapesOf(photos: Photo[], order: string[]) {
     .map((p) => ({ id: p.id, aspect: p.aspect }));
 }
 
-export function suggestFor(photos: Photo[], doc: Doc): Node[] {
-  return generateLayouts(shapesOf(photos, doc.order), doc.canvas.aspect, 5);
+/** Everything the layout picker offers: scored suggestions plus named templates. */
+export function candidatesFor(photos: Photo[], doc: Doc): { suggestions: Node[]; templates: Template[] } {
+  const shapes = shapesOf(photos, doc.order);
+  return {
+    suggestions: generateLayouts(shapes, doc.canvas.aspect, SUGGESTION_COUNT),
+    templates: templatesFor(shapes, doc.canvas.aspect),
+  };
 }
+
+const aspectLookup = (photos: Photo[]) => {
+  const map = new Map(photos.map((p) => [p.id, p.aspect]));
+  return (id: string) => map.get(id) ?? 1;
+};
 
 export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
@@ -125,12 +143,13 @@ export function reducer(state: AppState, action: Action): AppState {
       const photos = [...state.photos, ...action.photos];
       const order = [...state.doc.order, ...action.photos.map((p) => p.id)];
       const doc = { ...state.doc, order };
-      const suggestions = suggestFor(photos, doc);
+      const { suggestions, templates } = candidatesFor(photos, doc);
       return {
         ...commit(state, { ...doc, root: suggestions[0] ?? null }),
         photos,
         suggestions,
-        suggestionIndex: 0,
+        templates,
+        picked: 's:0',
         adjusted: false,
         notices: action.skipped?.length ? skipNotices(action.skipped) : state.notices,
       };
@@ -149,7 +168,7 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...next,
         photos,
-        suggestions: suggestFor(photos, doc),
+        ...candidatesFor(photos, doc),
         selected: state.selected === action.photoId ? null : state.selected,
       };
     }
@@ -159,11 +178,13 @@ export function reducer(state: AppState, action: Action): AppState {
       const [moved] = order.splice(action.from, 1);
       order.splice(action.to, 0, moved);
       const doc = { ...state.doc, order };
-      const suggestions = suggestFor(state.photos, doc);
+      const { suggestions, templates } = candidatesFor(state.photos, doc);
+      // Keep whichever tile they had chosen, re-applied to the new order.
+      const root = reapply(state.picked, suggestions, templates) ?? doc.root;
       return {
-        ...commit(state, { ...doc, root: suggestions[0] ?? doc.root }),
+        ...commit(state, { ...doc, root }),
         suggestions,
-        suggestionIndex: 0,
+        templates,
         adjusted: false,
       };
     }
@@ -171,21 +192,34 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'pick-suggestion': {
       const root = state.suggestions[action.index];
       if (!root) return state;
+      return { ...commit(state, { ...state.doc, root }), picked: `s:${action.index}`, adjusted: false };
+    }
+
+    case 'pick-template': {
+      const template = state.templates.find((t) => t.key === action.key);
+      if (!template) return state;
       return {
-        ...commit(state, { ...state.doc, root }),
-        suggestionIndex: action.index,
+        ...commit(state, { ...state.doc, root: template.root }),
+        picked: `t:${action.key}`,
         adjusted: false,
       };
     }
 
     case 'auto-arrange': {
-      const suggestions = suggestFor(state.photos, state.doc);
+      const { suggestions, templates } = candidatesFor(state.photos, state.doc);
       return {
         ...commit(state, { ...state.doc, root: suggestions[0] ?? state.doc.root }),
         suggestions,
-        suggestionIndex: 0,
+        templates,
+        picked: 's:0',
         adjusted: false,
       };
+    }
+
+    case 'flip-seam': {
+      if (!state.doc.root) return state;
+      const root = flipSplit(state.doc.root, action.nodeId, aspectLookup(state.photos));
+      return { ...commit(state, { ...state.doc, root }), adjusted: true };
     }
 
     case 'set-canvas': {
@@ -193,20 +227,18 @@ export function reducer(state: AppState, action: Action): AppState {
       const doc = { ...state.doc, canvas };
       const aspectChanged = action.patch.aspect !== undefined && action.patch.aspect !== state.doc.canvas.aspect;
       if (!aspectChanged) return commit(state, doc);
-      const suggestions = suggestFor(state.photos, doc);
+      const { suggestions, templates } = candidatesFor(state.photos, doc);
       if (state.adjusted) {
         // Keep the arrangement they built; the cells just reflow into the new shape.
         return {
           ...commit(state, doc),
           suggestions,
+          templates,
           notices: ['Kept your arrangement. Use Auto-arrange for a layout suited to the new shape.'],
         };
       }
-      return {
-        ...commit(state, { ...doc, root: suggestions[0] ?? doc.root }),
-        suggestions,
-        suggestionIndex: 0,
-      };
+      const root = reapply(state.picked, suggestions, templates) ?? suggestions[0] ?? doc.root;
+      return { ...commit(state, { ...doc, root }), suggestions, templates };
     }
 
     case 'begin':
@@ -250,7 +282,7 @@ export function reducer(state: AppState, action: Action): AppState {
         doc,
         past: state.past.slice(0, -1),
         future: [state.doc, ...state.future].slice(0, HISTORY_LIMIT),
-        suggestions: suggestFor(state.photos, doc),
+        ...candidatesFor(state.photos, doc),
         pending: null,
       };
     }
@@ -263,7 +295,7 @@ export function reducer(state: AppState, action: Action): AppState {
         doc,
         past: [...state.past, state.doc].slice(-HISTORY_LIMIT),
         future: state.future.slice(1),
-        suggestions: suggestFor(state.photos, doc),
+        ...candidatesFor(state.photos, doc),
         pending: null,
       };
     }
@@ -273,14 +305,13 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...INITIAL, doc: { ...EMPTY_DOC, canvas: state.doc.canvas } };
     }
 
-    case 'restore': {
+    case 'restore':
       return {
         ...INITIAL,
         photos: action.photos,
         doc: action.doc,
-        suggestions: suggestFor(action.photos, action.doc),
+        ...candidatesFor(action.photos, action.doc),
       };
-    }
 
     case 'notice':
       return { ...state, notices: [action.text] };
@@ -291,6 +322,13 @@ export function reducer(state: AppState, action: Action): AppState {
     default:
       return state;
   }
+}
+
+/** Re-apply the tile the user chose after the candidate list has been rebuilt. */
+function reapply(picked: string | null, suggestions: Node[], templates: Template[]): Node | null {
+  if (!picked) return null;
+  if (picked.startsWith('s:')) return suggestions[Number(picked.slice(2))] ?? null;
+  return templates.find((t) => t.key === picked.slice(2))?.root ?? null;
 }
 
 function skipNotices(skipped: { name: string; reason: string }[]): string[] {

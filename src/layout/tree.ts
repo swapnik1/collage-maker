@@ -1,11 +1,11 @@
-import { Cell, Dir, Layout, Node, Rect, Seam, UNIT } from '../types';
+import { Cell, Dir, Layout, LeafNode, Node, Rect, Seam, SplitNode, UNIT } from '../types';
 
 let counter = 0;
 export const uid = (prefix = 'n'): string => `${prefix}${(counter++).toString(36)}`;
 
-export const leaf = (photoId: string): Node => ({ kind: 'leaf', id: uid('l'), photoId });
+export const leaf = (photoId: string): LeafNode => ({ kind: 'leaf', id: uid('l'), photoId });
 
-export const split = (dir: Dir, a: Node, b: Node, ratio = 0.5): Node => ({
+export const split = (dir: Dir, a: Node, b: Node, ratio = 0.5): SplitNode => ({
   kind: 'split',
   id: uid('s'),
   dir,
@@ -177,9 +177,50 @@ export function signature(node: Node): string {
   return `(${node.dir === 'row' ? '|' : '-'}${signature(node.a)}${signature(node.b)})`;
 }
 
-/** Fallback tree: a left-leaning chain. Only used if generation somehow yields nothing. */
+/** A left-leaning chain of photos, which optimiseRatios turns into a justified row. */
 export function chain(photoIds: string[], dir: Dir): Node {
-  let node = leaf(photoIds[0]);
+  let node: Node = leaf(photoIds[0]);
   for (let i = 1; i < photoIds.length; i++) node = split(dir, node, leaf(photoIds[i]));
   return node;
+}
+
+/** The same, over ready-made subtrees. */
+export function chainOf(nodes: Node[], dir: Dir): Node {
+  let node = nodes[0];
+  for (let i = 1; i < nodes.length; i++) node = split(dir, node, nodes[i]);
+  return node;
+}
+
+/** Groups of consecutive photos become justified rows (or columns). */
+export function fromComposition(ids: string[], parts: number[], groupDir: Dir): Node {
+  const stackDir: Dir = groupDir === 'row' ? 'col' : 'row';
+  const groups: Node[] = [];
+  let i = 0;
+  for (const size of parts) {
+    groups.push(chain(ids.slice(i, i + size), groupDir));
+    i += size;
+  }
+  return chainOf(groups, stackDir);
+}
+
+/**
+ * Turn a row of photos into a column, or the other way round. The ratio is
+ * re-solved from the children afterwards, because a ratio that balanced two
+ * widths means something different once it is dividing heights.
+ */
+export function flipSplit(root: Node, nodeId: string, aspectOf: (photoId: string) => number): Node {
+  return mapNode(root, nodeId, (n) => {
+    if (n.kind !== 'split') return n;
+    const dir: Dir = n.dir === 'row' ? 'col' : 'row';
+    const aa = naturalAspect(n.a, aspectOf);
+    const ab = naturalAspect(n.b, aspectOf);
+    const ratio = clamp(dir === 'row' ? aa / (aa + ab) : ab / (aa + ab), 0.05, 0.95);
+    return { ...n, dir, ratio };
+  });
+}
+
+export function findNode(root: Node, id: string): Node | null {
+  if (root.id === id) return root;
+  if (root.kind === 'leaf') return null;
+  return findNode(root.a, id) ?? findNode(root.b, id);
 }

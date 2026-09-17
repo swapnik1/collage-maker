@@ -1,5 +1,5 @@
 import { Dir, Node } from '../types';
-import { chain, clamp, computeLayout, leaf, optimiseRatios, signature, split } from './tree';
+import { chain, clamp, computeLayout, fromComposition, leaf, optimiseRatios, signature, split } from './tree';
 
 export interface PhotoShape {
   id: string;
@@ -75,24 +75,6 @@ export function scoreTree(
     W.starved * starved +
     extreme
   );
-}
-
-function chainOf(nodes: Node[], dir: Dir): Node {
-  let node = nodes[0];
-  for (let i = 1; i < nodes.length; i++) node = split(dir, node, nodes[i]);
-  return node;
-}
-
-/** Groups of consecutive photos become justified rows (or columns). */
-function fromComposition(ids: string[], parts: number[], groupDir: Dir): Node {
-  const stackDir: Dir = groupDir === 'row' ? 'col' : 'row';
-  const groups: Node[] = [];
-  let i = 0;
-  for (const size of parts) {
-    groups.push(chain(ids.slice(i, i + size), groupDir));
-    i += size;
-  }
-  return chainOf(groups, stackDir);
 }
 
 function compositions(n: number, k: number, rnd: () => number, samples: number): number[][] {

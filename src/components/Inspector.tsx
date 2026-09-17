@@ -52,6 +52,10 @@ export default function Inspector({
         Auto-arrange
       </button>
       {adjusted && <p className="note">Your adjustments are kept until you auto-arrange or pick a layout.</p>}
+      <p className="note">
+        Drag a seam to resize. Click the button on a seam to turn a row into a column, or a column into
+        a row.
+      </p>
 
       <div className="panel-head">
         <h2>Spacing</h2>

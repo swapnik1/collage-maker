@@ -64,6 +64,8 @@ read with the File API and never transmitted. Usable offline after first load.
 | R2.5 | Layout generation is deterministic — the same photos in the same order produce the same suggestions. |
 | R2.6 | Complete within 300ms for 20 photos. |
 | R2.7 | Changing the canvas aspect ratio re-runs layout. Adding or removing a photo re-runs layout and warns first if manual adjustments would be lost. |
+| R2.8 | Alongside the scored suggestions, offer named structural templates — Grid, Rows of N, Columns of N, Hero on each side, and so on — filtered to the ones that make sense for the current photo count. The user can take the algorithm's ranking or impose a shape of their own. |
+| R2.9 | Remember which suggestion or template produced the current arrangement, and re-apply that choice when the photo order or canvas shape changes. |
 
 ### R3 — Canvas
 
@@ -83,6 +85,7 @@ read with the File API and never transmitted. Usable offline after first load.
 | R4.4 | Enforce a minimum cell size (5% of canvas width/height); the drag stops there rather than collapsing a cell. |
 | R4.5 | Double-clicking a seam resets it to its layout-computed position. |
 | R4.6 | Dragging one photo onto another swaps their positions; each photo keeps its own zoom and pan. |
+| R4.7 | Each seam carries a control that turns a row into a column and back, re-solving that split's ratio for its new direction. Pressing the control and dragging resizes the seam as usual, so one gesture never blocks the other. |
 
 ### R5 — Zoom and pan within a cell
 
@@ -159,6 +162,6 @@ foundation.
 
 ## 10. Later
 
-HEIC/RAW import · face- and subject-aware crop positioning · a shelf of curated
-templates alongside the adaptive suggestions · free-form overlap mode ·
-saveable project files · touch/mobile layout · shareable links.
+HEIC/RAW import · face- and subject-aware crop positioning · free-form overlap
+mode · saveable project files and reusable custom layouts · touch/mobile layout ·
+shareable links.
