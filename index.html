@@ -3,8 +3,32 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Collage Maker</title>
-    <meta name="description" content="Drop in photos, get a collage. Everything stays on your device." />
+
+    <!--
+      connect-src 'none' is the load-bearing line: the browser itself refuses to
+      let this page open a network connection, so "your photos never leave this
+      device" is enforced rather than promised. Anyone can verify it in devtools.
+      script-src allows inline because the single-file build inlines the bundle.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'self'; object-src 'none'"
+    />
+
+    <title>Collage Maker — photos never leave your device</title>
+    <meta
+      name="description"
+      content="Drop in up to 20 photos and get a collage. Layouts are chosen for you, adjustable by dragging. Runs entirely in your browser — nothing is uploaded."
+    />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Collage Maker — photos never leave your device" />
+    <meta
+      property="og:description"
+      content="Drop in up to 20 photos and get a collage. Layouts are chosen for you, adjustable by dragging. Runs entirely in your browser — nothing is uploaded."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%23111'/><rect x='14' y='14' width='40' height='48' rx='4' fill='%23f0b429'/><rect x='58' y='14' width='28' height='22' rx='4' fill='%234dabf7'/><rect x='58' y='40' width='28' height='22' rx='4' fill='%2351cf66'/><rect x='14' y='66' width='72' height='20' rx='4' fill='%23e64980'/></svg>" />
   </head>
   <body>
